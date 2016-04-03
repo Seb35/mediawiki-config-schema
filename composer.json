@@ -1,0 +1,29 @@
+{
+	"name": "seb35/mediawiki-config-schema",
+	"description": "Schema for MediaWiki configuration.",
+	"keywords": ["mediawiki", "quality", "configuration"],
+	"homepage": "https://www.seb35.fr",
+	"authors": [
+		{
+			"name": "Sébastien Beyou",
+			"homepage": "https://www.seb35.fr"
+		}
+	],
+	"license": "GPL-3.0+",
+	"require": {
+		"php": ">=5.3",
+		"kzykhys/git": "*",
+		"composer/semver": "*"
+	},
+	"require-dev": {
+		"justinrainbow/json-schema": "*",
+		"phpdocumentor/phpdocumentor": "*",
+		"jakub-onderka/php-parallel-lint": "*",
+		"phpmd/phpmd" : "*"
+	},
+	"scripts": {
+		"validate-schema": "php ./scripts/validate-schema.php",
+		"phpdoc": "./vendor/bin/phpdoc -d src,scripts -e php,php.txt -t ./docs/code",
+		"parallel-lint": "./vendor/bin/parallel-lint --exclude vendor ."
+	}
+}

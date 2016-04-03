@@ -1,0 +1,13 @@
+# Backup
+*.swp
+*~
+
+# Composer
+/vendor
+
+# Schema directory
+/schema
+
+# Temporary files
+/code
+
