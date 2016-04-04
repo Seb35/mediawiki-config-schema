@@ -138,8 +138,9 @@ function readConfigParameters( $code ) {
 			
 			$varname = $tokens[$i][1];
 			
-			if( substr( $varname, 0, 3 ) != '$wg' )
+			if( !preg_match( '/^\\$(wg[a-zA-Z0-9]+)$/', $varname, $matches ) )
 				continue;
+			$varname = $matches[1];
 			$i++;
 			
 			if( is_array( $tokens[$i] ) && token_name( $tokens[$i][0] ) == 'T_WHITESPACE' )
@@ -152,28 +153,61 @@ function readConfigParameters( $code ) {
 					$i++;
 				
 				$value = '';
-				$type = 0;
+				$token = 0;
+				$type = '';
+				$result = null;
 				for( ; $i<count($tokens); $i++ ) {
 					
 					if( $tokens[$i] == ';' ) break;
 					elseif( is_string( $tokens[$i] ) ) {
 						$value .= $tokens[$i];
-						if( ($type === 0 && preg_match( '/^(?:"|\')/', $tokens[$i] )) || $tokens[$i] == '.' ) $type = T_CONSTANT_ENCAPSED_STRING;
+						if( $token == 0 && $tokens[$i] == '[' ) {
+							$token = T_ARRAY;
+							$type = 'object';
+						}
+						elseif( ($token == 0 && preg_match( '/^(?:"|\')/', $tokens[$i] )) || ($tokens[$i] == '.' && token_name( $token ) != 'T_ARRAY') )
+							$token = T_CONSTANT_ENCAPSED_STRING;
+						elseif( ($type == 'integer' || $type == 'number') && !is_null( $result ) ) {
+							if( $tokens[$i] == '*' ) $result[1] = '*';
+							else $result = null;
+						}
 					}
 					elseif( is_array( $tokens[$i] ) ) {
+						if( token_name( $tokens[$i][0] ) == 'T_CLOSE_TAG' ) break;
 						$value .= $tokens[$i][1];
-						if( $type === 0 ) $type = $tokens[$i][0];
+						if( $token == 0 && token_name( $tokens[$i][0] ) == 'T_LNUMBER' ) {
+							$type = 'integer';
+							if( is_null( $result ) ) $result = array( intval( $tokens[$i][1], 0 ), '' );
+							elseif( $result[1] == '*' ) $result = array( $result[0] * intval( $tokens[$i][1], 0 ), '' );
+						}
+						elseif( $token == 0 && token_name( $tokens[$i][0] ) == 'T_DNUMBER' ) {
+							$type = 'number';
+							if( is_null( $result ) ) $result = array( floatval( $tokens[$i][1] ), '' );
+							elseif( $result[1] == '*' ) $result = array( $result[0] * floatval( $tokens[$i][1] ), '' );
+						}
+						elseif( $token == 0 && token_name( $tokens[$i][0] ) == 'T_STRING' && typeBoolean( $tokens[$i][1] ) !== $tokens[$i][1] ) {
+							$type = 'boolean';
+							$result = typeBoolean( $tokens[$i][1] );
+						}
+						if( $token === 0 ) $token = $tokens[$i][0];
+						if( token_name( $token ) == 'T_ARRAY' ) {
+							$type = 'object';
+						}
 					}
 				}
 				
 				# When a variable is the result from another variable, get the previous result
-				if( preg_match( '/^\&?(\$wg[a-zA-Z0-9]+)$/', $value, $matches ) && array_key_exists( $matches[1], $config ) )
-					$type = $config[$matches[1]][count($config[$matches[1]])-1][1];
+				if( preg_match( '/^\\&?\\$(wg[a-zA-Z0-9]+)$/', $value, $matches ) && array_key_exists( $matches[1], $config ) ) {
+					
+					$token = $config[$matches[1]][count($config[$matches[1]])-1][1];
+					$type = $config[$matches[1]][count($config[$matches[1]])-1][2];
+					$result = $config[$matches[1]][count($config[$matches[1]])-1][3];
+				}
 				
 				if( !array_key_exists( $varname, $config ) )
 					$config[$varname] = array();
 				
-				$config[$varname][] = array( $value, $type );
+				$config[$varname][] = array( trim( $value ), $token, $type, $result );
 			}
 		}
 	}
@@ -197,17 +231,17 @@ function readConfigParameters( $code ) {
  */
 function getParamType( $value ) {
 	
-	if( $value[0] == 'false' || $value[0] == 'true' || $value[0] == 'FALSE' || $value[0] == 'TRUE' || token_name( $value[1] ) == 'T_STRING' )
+	if( $value[2] == 'boolean' || (($value[0] == 'false' || $value[0] == 'true' || $value[0] == 'FALSE' || $value[0] == 'TRUE') && token_name( $value[1] ) == 'T_STRING') )
 		return 'boolean';
-	elseif( $value[0] == 'null' || $value[0] == 'NULL' || token_name( $value[1] ) == 'T_STRING' )
+	elseif( ($value[0] == 'null' || $value[0] == 'NULL') && token_name( $value[1] ) == 'T_STRING' )
 		return 'null';
 	elseif( $value[0][0] == '"' || $value[0][0] == '\'' || $value[0][strlen($value[0])-1] == '"' || $value[0][strlen($value[0])-1] == '\'' || token_name( $value[1] ) == 'T_CONSTANT_ENCAPSED_STRING' )
 		return 'string';
-	elseif( preg_match( '/^[0-9]+$/', $value[0] ) )
+	elseif( $value[2] == 'integer' || preg_match( '/^[0-9-]+$/', $value[0] ) || token_name( $value[1] ) == 'T_LNUMBER' )
 		return 'integer';
-	elseif( preg_match( '/^[0-9.]+$/', $value[0] ) )
+	elseif( $value[2] == 'number' || preg_match( '/^[0-9.eE-]+$/', $value[0] ) || token_name( $value[1] ) == 'T_DNUMBER' )
 		return 'number';
-	elseif( token_name( $value[1] ) == 'T_ARRAY' )
+	elseif( $value[2] == 'object' || token_name( $value[1] ) == 'T_ARRAY' )
 		return 'object';
 	
 	return null;
@@ -237,10 +271,11 @@ function initSchema( $codeDir ) {
 		$content = analyseGitCommit( $codeDir, $commit );
 		$config = readConfigParameters( $content );
 		$schema = addSchema( $schema, $config, $commit );
-		//if( $i++ == 100 ) break;
+		#if( $commit == 'fd34d0354b6842acb0bb0cd990e508375f390f37' ) break; # introduced MW_VERSION
+		#if( substr( $commit, 0, 8 ) == '6e9b4f0e' ) break;
+		#if( $i++ == 1000 ) break;
 	}
 	
-	//var_dump($schema);
 	return $schema;
 }
 
@@ -254,9 +289,13 @@ function initSchema( $codeDir ) {
  */
 function addSchema( $schema, $config, $commit ) {
 	
-	$version = '';
-	if( array_key_exists( '$wgVersion', $config ) )
-		$version = preg_replace( '/^(?:"|\')(.*)(?:"|\')$/', '$1', $config['$wgVersion'][count($config['$wgVersion'])-1][0] );
+	# Get version from $wgVersion; it exists since 1.2.0alpha
+	$version = '0.0.0';
+	if( array_key_exists( 'wgVersion', $config ) )
+		$version = preg_replace( '/^(?:"|\')(.*)(?:"|\')$/', '$1', $config['wgVersion'][count($config['wgVersion'])-1][0] );
+	
+	# The constant MW_VERSION was introduced and quickly reverted around 1.19alpha
+	if( $version == 'MW_VERSION' ) $version = '1.19alpha';
 	
 	foreach( $config as $param => $values ) {
 		
@@ -281,12 +320,13 @@ function addSchema( $schema, $config, $commit ) {
  */
 function addParameterSchema( $parameter, $values, $version, $commit ) {
 	
-	if( !$version ) $version = '0.0.0';
+	$php = $values[count($values)-1][0];
 	
 	$config = array(
 		'type' => array(),
 		'description' => '',
 		'version' => '>='.$version,
+		'php' => $php,
 		'source' => array( 'git#'.substr($commit,0,8).' added' ),
 	);
 	
@@ -294,15 +334,15 @@ function addParameterSchema( $parameter, $values, $version, $commit ) {
 	
 	if( !is_null( $type ) ) {
 		$config['type'][] = $type;
-		if( $type == 'string' ) $config['default'] = typeString( $values[count($values)-1][0] );
-		elseif( $type == 'boolean' ) $config['default'] = typeBoolean( $values[count($values)-1][0] );
-		elseif( $type == 'null' ) $config['default'] = typeNull( $values[count($values)-1][0] );
-		elseif( $type == 'integer' || $type == 'number' || $type == 'object' ) $config['default'] = $values[count($values)-1][0];
+		if( $type == 'string' ) $config['default'] = typeString( $php );
+		elseif( $type == 'boolean' ) $config['default'] = typeBoolean( $php, $values[count($values)-1] );
+		elseif( $type == 'null' ) $config['default'] = typeNull( $php );
+		elseif( $type == 'integer' ) $config['default'] = typeInteger( $php, $values[count($values)-1] );
+		elseif( $type == 'number' ) $config['default'] = typeNumber( $php, $values[count($values)-1] );
+		elseif( $type == 'object' ) $config['default'] = $php;
 	}
 	else {
 		$config['code'] = $values[count($values)-1][0];
-		var_dump( $parameter );
-		var_dump($values);
 	}
 	return $config;
 }
@@ -319,25 +359,50 @@ function addParameterSchema( $parameter, $values, $version, $commit ) {
  */
 function updateParameterSchema( $parameter, $config, $values, $version, $commit ) {
 	
-	if( !$version ) $version = '0.0.0';
+	# Get PHP code
+	$php = $values[count($values)-1][0];
+	
+	# Some workaround for UTF-8 invalid characters - json_encode doesn’t like (at all) these faulty characters
+	if( $parameter == 'wgBrowserBlackList' ) {
+		if( $commit == 'd4db1caa6ae3098b34a15fbc5808b52ae8ab8895' ) $php = str_replace( "\xC3\x3F", '<c3><3f>', $php );
+		if( $commit == '876a60ad07239aec3392903c5fec95d1b8edaa82' ) $php = str_replace( array( "\xFE\x20", "\xF0\x20", "\xDE\x20", "\xD0\x20" ), array( '<fe> ', '<f0> ', '<de> ', '<d0> ' ), $php );
+	}
+	elseif( $parameter == 'wgUrlProtocols' ) {
+		if( $commit == '876a60ad07239aec3392903c5fec95d1b8edaa82' ) $php = str_replace( "\xE6\x76", '<e6>v', $php );
+	}
+	
+	#$jsontest = json_encode( $php, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+	#if( !$jsontest ) {
+	#	var_dump(json_last_error_msg());
+	#	var_dump( $parameter );
+	#	var_dump( $commit );
+	#	#$php = 'null';
+	#	#$values = array( 'null', T_STRING );
+	#}
 	
 	# Check if the default value has been modified
 	$modified = false;
 	$type = getParamType( $values[count($values)-1] );
 	$default = null;
-	$code = null;
 	if( !in_array( $type, $config['type'] ) && !(is_null( $type ) && count( $config['type'] ) == 0) ) $modified = true;
 	if( !is_null( $type ) ) {
-		if( $type == 'string' ) $default = typeString( $values[count($values)-1][0] );
-		elseif( $type == 'boolean' ) $default = typeBoolean( $values[count($values)-1][0] );
-		elseif( $type == 'null' ) $default = typeNull( $values[count($values)-1][0] );
-		elseif( $type == 'integer' || $type == 'number' || $type == 'object' ) $default = $values[count($values)-1][0];
-		if( in_array( $type, array( 'string', 'integer', 'number', 'boolean', 'object' ) ) && $default !== $config['default'] ) $modified = true;
+		if( $type == 'string' ) $default = typeString( $php );
+		elseif( $type == 'boolean' ) $default = typeBoolean( $php, $values[count($values)-1] );
+		elseif( $type == 'null' ) $default = typeNull( $php );
+		elseif( $type == 'integer' ) $default = typeInteger( $php, $values[count($values)-1] );
+		elseif( $type == 'number' ) $default = typeNumber( $php, $values[count($values)-1] );
+		elseif( $type == 'object' ) $default = $php;
+		if( in_array( $type, array( 'string', 'integer', 'number', 'boolean', 'object' ) ) && array_key_exists( 'default', $config ) && $default !== $config['default'] ) $modified = true;
 	}
-	else {
-		$code = $values[count($values)-1][0];
-		if( $code !== $config['code'] ) $modified = true;
-	}
+	if( array_key_exists( 'php', $config ) && $php !== $config['php'] ) $modified = true;
+	
+	# Remove default if the value is PHP code
+	if( is_null( $type ) || $php === $default )
+		unset( $config['default'] );
+	
+	# PHP code
+	$oldphp = $config['php'];
+	$config['php'] = $php;
 	
 	# If nothing is modified, that’s fine and just return
 	if( !$modified )
@@ -345,9 +410,12 @@ function updateParameterSchema( $parameter, $config, $values, $version, $commit 
 	
 	# Parameter was removed and now reinstalled
 	$oldVersionConstraint = $config['version'];
-	if( !preg_match( '/^.*>=(?:0\\.0\\.0|1\\.[1-9][0-9]*\\.[0-9]+)[a-zA-Z0-9-]*$/', $config['version'] ) ) {
+	if( !preg_match( '/^.*>=[0-9]+\\.[0-9]+(?:\\.[0-9]+)?[a-zA-Z0-9+-]*$/', $config['version'] ) )
 		$config['version'] .= ' || >=' . $version;
-	}
+	
+	# Add default value if type is known
+	if( !is_null( $type ) && $php !== $default )
+		$config['default'] = $default;
 	
 	# When the type changes
 	if( !in_array( $type, $config['type'] ) && !(is_null( $type ) && count( $config['type'] ) == 0) ) {
@@ -357,7 +425,7 @@ function updateParameterSchema( $parameter, $config, $values, $version, $commit 
 		
 		$thisOldVersionConstraint = $config['types'][count($config['types'])-1][0];
 		$thisNewVersionConstraint = '>='.$version;
-		if( preg_match( '/^(.*)>=(0\\.0\\.0|1\\.[1-9][0-9]*\\.[0-9]+)(?:\\.([0-9]+))?([a-zA-Z0-9-]*)$/', $thisOldVersionConstraint, $matches ) ) {
+		if( preg_match( '/^(.*)>=([0-9]+\\.[0-9]+(?:\\.[0-9]+)?)(?:\\.([0-9]+))?([a-zA-Z0-9+-]*)$/', $thisOldVersionConstraint, $matches ) ) {
 			
 			$subversion = (int) $matches[3];
 			if( $matches[2].$matches[4] == $version ) {
@@ -372,62 +440,32 @@ function updateParameterSchema( $parameter, $config, $values, $version, $commit 
 		$config['type'] = array( $type );
 	}
 	
-	# When the default changes
-	$archivePattern = false;
-	if( !is_null( $type ) ) {
+	# Add a line in history
+	if( !array_key_exists( 'history', $config ) ) $config['history'] = array();
+	if( count( $config['history'] ) == 0 ) $config['history'][] = array( $oldVersionConstraint, $oldphp );
+	$thisOldVersionConstraint = $config['history'][count($config['history'])-1][0];
+	$thisNewVersionConstraint = '>='.$version;
+	if( preg_match( '/^(.*)>=([0-9]+\\.[0-9]+(?:\\.[0-9]+)?)(?:\\.([0-9]+))?([a-zA-Z0-9+-]*)$/', $thisOldVersionConstraint, $matches ) ) {
 		
-		if( !array_key_exists( 'defaults', $config ) ) $config['defaults'] = array();
-		if( count( $config['defaults'] ) == 0 ) $config['defaults'][] = array( $oldVersionConstraint, $config['default'] );
-		
-		$thisOldVersionConstraint = $config['defaults'][count($config['defaults'])-1][0];
-		$thisNewVersionConstraint = '>='.$version;
-		if( preg_match( '/^(.*)>=(0\\.0\\.0|1\\.[1-9][0-9]*\\.[0-9]+)(?:\\.([0-9]+))?([a-zA-Z0-9-]*)$/', $thisOldVersionConstraint, $matches ) ) {
-			
-			$subversion = (int) $matches[3];
-			if( $matches[2].$matches[4] == $version ) {
-				$thisOldVersionConstraint = $matches[1].'>='.$matches[2].'.'.$subversion.$matches[4] . ' <'.$matches[1].$matches[2].'.'.($subversion+1).$matches[4];
-				$thisNewVersionConstraint = '>='.$matches[2].'.'.($subversion+1).$matches[4];
-			}
-			else $thisOldVersionConstraint .= ' <'.$version;
+		$subversion = (int) $matches[3];
+		if( $matches[2].$matches[4] == $version ) {
+			$thisOldVersionConstraint = $matches[1].'>='.$matches[2].'.'.$subversion.$matches[4] . ' <'.$matches[1].$matches[2].'.'.($subversion+1).$matches[4];
+			$thisNewVersionConstraint = '>='.$matches[2].'.'.($subversion+1).$matches[4];
 		}
-		
-		$config['defaults'][count($config['defaults'])-1][0] = $thisOldVersionConstraint;
-		$config['defaults'][] = array( $thisNewVersionConstraint, $default );
-		$config['default'] = $default;
-		$archivePattern = true;
+		else $thisOldVersionConstraint .= ' <'.$version;
 	}
-	else {
-		
-		if( !array_key_exists( 'codes', $config ) ) $config['codes'] = array();
-		if( count( $config['codes'] ) == 0 ) $config['codes'][] = array( $oldVersionConstraint, $config['code'] );
-		
-		$thisOldVersionConstraint = $config['codes'][count($config['codes'])-1][0];
-		$thisNewVersionConstraint = '>='.$version;
-		if( preg_match( '/^(.*)>=(0\\.0\\.0|1\\.[1-9][0-9]*\\.[0-9]+)(?:\\.([0-9]+))?([a-zA-Z0-9-]*)$/', $thisOldVersionConstraint, $matches ) ) {
-			
-			$subversion = (int) $matches[3];
-			if( $matches[2].$matches[4] == $version ) {
-				$thisOldVersionConstraint = $matches[1].'>='.$matches[2].'.'.$subversion.$matches[4] . ' <'.$matches[1].$matches[2].'.'.($subversion+1).$matches[4];
-				$thisNewVersionConstraint = '>='.$matches[2].'.'.($subversion+1).$matches[4];
-			}
-			else $thisOldVersionConstraint .= ' <'.$version;
-		}
-		
-		$config['codes'][count($config['codes'])-1][0] = $thisOldVersionConstraint;
-		$config['codes'][] = array( $thisNewVersionConstraint, $code );
-		$config['code'] = $code;
-		$archivePattern = true;
-	}
+	$config['history'][count($config['history'])-1][0] = $thisOldVersionConstraint;
+	$config['history'][] = array( $thisNewVersionConstraint, $php );
 	
 	# Pattern
-	if( $archivePattern && $config['pattern'] ) {
+	if( $config['pattern'] ) {
 		
 		if( !array_key_exists( 'patterns', $config ) ) $config['patterns'] = array();
 		if( count( $config['patterns'] ) == 0 ) $config['patterns'][] = array( $oldVersionConstraint, $config['pattern'] );
 		
 		$thisOldVersionConstraint = $config['patterns'][count($config['patterns'])-1][0];
 		$thisNewVersionConstraint = '>='.$version;
-		if( preg_match( '/^(.*)>=(0\\.0\\.0|1\\.[1-9][0-9]*\\.[0-9]+)(?:\\.([0-9]+))?([a-zA-Z0-9-]*)$/', $thisOldVersionConstraint, $matches ) ) {
+		if( preg_match( '/^(.*)>=([0-9]+\\.[0-9]+(?:\\.[0-9]+)?)(?:\\.([0-9]+))?([a-zA-Z0-9+-]*)$/', $thisOldVersionConstraint, $matches ) ) {
 			
 			$subversion = (int) $matches[3];
 			if( $matches[2].$matches[4] == $version ) {
@@ -441,7 +479,7 @@ function updateParameterSchema( $parameter, $config, $values, $version, $commit 
 	}
 	
 	# Source
-	$config['source'][] = 'git#'.substr($commit,0,8).' modified';
+	$config['source'][] = 'git#'.substr($commit,0,8).' changed';
 	
 	return $config;
 }
@@ -455,12 +493,11 @@ function updateParameterSchema( $parameter, $config, $values, $version, $commit 
 function typeString( $value ) {
 	
 	if( preg_match( '/\$/', $value ) ) return $value;
-	
 	$withoutDoubleQuotes = preg_replace( '/^"(.*)"$/', '$1', $value );
-	if( !preg_match( '/"/', $withoutDoubleQuotes ) ) return $withoutDoubleQuotes;
+	if( $withoutDoubleQuotes != $value && !preg_match( '/"/', $withoutDoubleQuotes ) ) return $withoutDoubleQuotes;
 	
 	$withoutSingleQuotes = preg_replace( '/^\'(.*)\'$/', '$1', $value );
-	if( !preg_match( '/\'/', $withoutSingleQuotes ) ) return $withoutSingleQuotes;
+	if( $withoutSingleQuotes != $value && !preg_match( '/\'/', $withoutSingleQuotes ) ) return $withoutSingleQuotes;
 	
 	return $value;
 }
@@ -469,11 +506,13 @@ function typeString( $value ) {
  * Interpretation of a string of type boolean.
  * 
  * @param string $value Value assumed to be a boolean.
+ * @param array $rawtype Raw informations about the type.
  * @return bool|string Value with correct type or input value if error.
  */
-function typeBoolean( $value ) {
+function typeBoolean( $value, $rawtype = null ) {
 	
-	if( $value == 'true' || $value == 'TRUE' ) return true;
+	if( is_array( $rawtype ) && $rawtype[2] == 'boolean' ) return $rawtype[3];
+	elseif( $value == 'true' || $value == 'TRUE' ) return true;
 	elseif( $value == 'false' || $value == 'FALSE' ) return false;
 	return $value;
 }
@@ -491,6 +530,36 @@ function typeNull( $value ) {
 }
 
 /**
+ * Interpretation of a string of type integer.
+ * 
+ * @param string $value Value assumed to be an integer.
+ * @param array $rawtype Raw informations about the type.
+ * @return int|string Value with correct type or input value if error.
+ */
+function typeInteger( $value, $rawtype = null ) {
+	
+	if( is_array( $rawtype ) && !is_null( $rawtype[3][0] ) ) return $rawtype[3][0];
+	elseif( $value == '0' || $value == '0x0' || $value == '00' ) return 0;
+	elseif( intval( $value, 0 ) ) return intval( $value, 0 );
+	return $value;
+}
+
+/**
+ * Interpretation of a string of type number.
+ * 
+ * @param string $value Value assumed to be a number.
+ * @param array $rawtype Raw informations about the type.
+ * @return float|string Value with correct type or input value if error.
+ */
+function typeNumber( $value, $rawtype = null ) {
+	
+	if( is_array( $rawtype ) && $rawtype[2] == 'number' && !is_null( $rawtype[3][0] ) ) return $rawtype[3][0];
+	elseif( $value == '0' || $value == '0x0' || $value == '00' ) return 0;
+	elseif( floatval( $value ) ) return floatval( $value );
+	return $value;
+}
+
+/**
  * Creation of the JSON Schema.
  * 
  * @param array $schema Internal representation of the schema.
@@ -502,18 +571,19 @@ function outputSchema( $schema ) {
 		
 		$backup = $config;
 		$config = array(
-			'type' => count( $backup['type'] ) == 1 ? $backup['type'][0] : $backup['type'],
+			'type' => count( $backup['type'] ) == 1 ? $backup['type'][0] : (count( $backup['type'] ) == 0 ? null : $backup['type'] ),
 			'description' => $backup['description'],
+			'version' => $backup['version'],
 		);
 		
 		if( array_key_exists( 'pattern', $backup ) ) $config['pattern'] = $backup['pattern'];
 		if( array_key_exists( 'default', $backup ) ) $config['default'] = $backup['default'];
-		if( array_key_exists( 'code', $backup ) ) $config['code'] = $backup['code'];
+		if( array_key_exists( 'php', $backup ) ) $config['php'] = $backup['php'];
 		
 		if( array_key_exists( 'types', $backup ) && count( $backup['types'] ) > 0 ) {
 			$config['types'] = array();
 			foreach( $backup['types'] as $type )
-				$config['types'][$type[0]] = (is_array( $type[1] ) && count( $type[1] ) == 1) ? $type[1][0] : $type[1];
+				$config['types'][$type[0]] = count( $type[1] ) == 1 ? $type[1][0] : (count( $type[1] ) == 0 ? null : $type[1] );
 		}
 		
 		if( array_key_exists( 'patterns', $backup ) && count( $backup['patterns'] ) > 0 ) {
@@ -522,16 +592,10 @@ function outputSchema( $schema ) {
 				$config['patterns'][$pattern[0]] = $pattern[1];
 		}
 		
-		if( array_key_exists( 'defaults', $backup ) && count( $backup['defaults'] ) > 0 ) {
-			$config['defaults'] = array();
-			foreach( $backup['defaults'] as $default )
-				$config['defaults'][$default[0]] = $default[1];
-		}
-		
-		if( array_key_exists( 'codes', $backup ) && count( $backup['codes'] ) > 0 ) {
-			$config['codes'] = array();
-			foreach( $backup['codes'] as $code )
-				$config['codes'][$code[0]] = $code[1];
+		if( array_key_exists( 'history', $backup ) && count( $backup['history'] ) > 0 ) {
+			$config['history'] = array();
+			foreach( $backup['history'] as $line )
+				$config['history'][$line[0]] = $line[1];
 		}
 		
 		if( count( $backup['source'] ) > 0 )
@@ -548,6 +612,14 @@ function outputSchema( $schema ) {
 		'properties' => $schema,
 	);
 	
-	return json_encode( $globalSchema, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+	# json_encode doesn’t like (at all) malformed UTF-8. The constant JSON_PARTIAL_OUTPUT_ON_ERROR is needed to continue
+	# in such cases. One malformed UTF-8 sequence was found (see above), but 3d08ab7 probably has malformed sequences (the \xC2\x90 is correct)
+	# there are other cases before the 1500th commit.
+	$json = json_encode( $globalSchema, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+	#$json = json_encode( $globalSchema, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR );
+	
+	if( !$json ) echo json_last_error_msg();
+	
+	return $json;
 }
 
