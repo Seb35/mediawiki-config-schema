@@ -1,0 +1,131 @@
+{
+	"$schema": "http://json-schema.org/draft-04/schema#",
+	"name": "MediaWiki configuration parameters schema.",
+	"type": "object",
+	"required": ["name", "type", "additionalProperties", "properties"],
+	"additionalProperties": false,
+	"properties": {
+		"name": {
+			"type": "string",
+			"description": "Name of the schema."
+		},
+		"version": {
+			"type": "string",
+			"description": "Last MediaWiki version analysed for this schema version.",
+			"pattern": "[0-9]+\\.[0-9]+(\\.[0-9]+)?[a-zA-Z0-9+-]*"
+		},
+		"git": {
+			"type": "string",
+			"description": "Last MediaWiki commit (affecting the file includes/DefaultSettings.php) analysed for this schema version.",
+			"pattern": "[0-9a-f]{40}"
+		},
+		"type": {
+			"type": "string",
+			"description": "Type of object.",
+			"enum": ["object"]
+		},
+		"additionalProperties": {
+			"type": "boolean",
+			"description": "The list of available MediaWiki configuration parameters is assumed to be complete."
+		},
+		"properties": {
+			"type": "object",
+			"description": "Available MediaWiki configuration parameters.",
+			"additionalProperties": false,
+			"patternProperties": {
+				"^wg[a-zA-Z0-9]+$": {
+					"type": "object",
+					"description": "A configuration parameter.",
+					"additionalProperties": false,
+					"required": ["type", "description", "version"],
+					"properties": {
+						"type": {
+							"anyOf": [
+								{
+									"type": "string",
+									"description": "Type of the configuration parameter.",
+									"enum": ["array", "boolean", "integer", "null", "number", "object", "string",null]
+								},
+								{
+									"type": "array",
+									"description": "Types of the configuration parameter.",
+									"minItems": 1,
+									"items": {
+										"$ref": "#/properties/properties/patternProperties/^wg[a-zA-Z0-9]+$/properties/type/anyOf/0"
+									}
+								}
+							]
+						},
+						"description": {
+							"type": "string",
+							"description": "Description of the configuration parameter."
+						},
+						"version": {
+							"type": "string",
+							"description": "MediaWiki version where this configuration parameter if official; description of version follows a subset of Composer rules.",
+							"pattern": "^>=[0-9]+\\.[0-9]+(\\.[0-9]+)?[a-zA-Z0-9+-]*( <[0-9]+\\.[0-9]+(\\.[0-9]+)?[a-zA-Z0-9+-]* \\|\\| >=[0-9]+\\.[0-9]+(\\.[0-9]+)?[a-zA-Z0-9+-]*)*( <[0-9]+\\.[0-9]+(\\.[0-9]+)?[a-zA-Z0-9+-]*)?$"
+						},
+						"pattern": {
+							"type": "string",
+							"description": "Regular expression describing authorised values."
+						},
+						"default": {
+							"type": ["array", "boolean", "integer", "null", "number", "object", "string"],
+							"description": "This is the default value if not set."
+						},
+						"php": {
+							"type": "string",
+							"description": "This is the PHP code for the default value if not set."
+						},
+						"readonly": {
+							"type": "boolean",
+							"description": "This parameter must not be changed by system administrators, it is internally computed and used.",
+							"default": false
+						},
+						"types": {
+							"type": "object",
+							"description": "List of types describing authorised types depending on the MediaWiki version.",
+							"additionalProperties": false,
+							"patternProperties": {
+								"^>=[0-9]+\\.[0-9]+(\\.[0-9]+)?(\\.[0-9]+)?[a-zA-Z0-9+-]*( <[0-9]+\\.[0-9]+(\\.[0-9]+)?(\\.[0-9]+)?[a-zA-Z0-9+-]* \\|\\| >=[0-9]+\\.[0-9]+(\\.[0-9]+)?(\\.[0-9]+)?[a-zA-Z0-9+-]*)*( <[0-9]+\\.[0-9]+(\\.[0-9]+)?(\\.[0-9]+)?[a-zA-Z0-9+-]*)?$": {
+									"$ref": "#/properties/properties/patternProperties/^wg[a-zA-Z0-9]+$/properties/type"
+								}
+							}
+						},
+						"patterns": {
+							"type": "object",
+							"description": "List of regular expressions describing authorised values depending on the MediaWiki version.",
+							"additionalProperties": false,
+							"patternProperties": {
+								"^>=[0-9]+\\.[0-9]+(\\.[0-9]+)?(\\.[0-9]+)?[a-zA-Z0-9+-]*( <[0-9]+\\.[0-9]+(\\.[0-9]+)?(\\.[0-9]+)?[a-zA-Z0-9+-]* \\|\\| >=[0-9]+\\.[0-9]+(\\.[0-9]+)?(\\.[0-9]+)?[a-zA-Z0-9+-]*)*( <[0-9]+\\.[0-9]+(\\.[0-9]+)?(\\.[0-9]+)?[a-zA-Z0-9+-]*)?$": {
+									"$ref": "#/properties/properties/patternProperties/^wg[a-zA-Z0-9]+$/properties/pattern"
+								}
+							}
+						},
+						"history": {
+							"type": "object",
+							"description": "List of historical PHP default values depending on the MediaWiki version.",
+							"additionalProperties": false,
+							"patternProperties": {
+								"^>=[0-9]+\\.[0-9]+(\\.[0-9]+)?(\\.[0-9]+)?[a-zA-Z0-9+-]*( <[0-9]+\\.[0-9]+(\\.[0-9]+)?(\\.[0-9]+)?[a-zA-Z0-9+-]* \\|\\| >=[0-9]+\\.[0-9]+(\\.[0-9]+)?(\\.[0-9]+)?[a-zA-Z0-9+-]*)*( <[0-9]+\\.[0-9]+(\\.[0-9]+)?(\\.[0-9]+)?[a-zA-Z0-9+-]*)?$": {
+									"$ref": "#/properties/properties/patternProperties/^wg[a-zA-Z0-9]+$/properties/php"
+								}
+							}
+						},
+						"source": {
+							"type": "array",
+							"description": "List of changes to the configuration parameter in the CVS.",
+							"minimumItems": 1,
+							"additionalItems": false,
+							"items": {
+								"type": "string",
+								"description": "A change to the configuration parameter in the CVS.",
+								"pattern": "^git#[0-9a-f]{8}( svn#[0-9]+)?( [0-9]{4}-[0-9]{2}-[0-9]{2}T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)Z)? (added|changed|deprecated|deleted)$"
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
